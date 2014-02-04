@@ -608,7 +608,6 @@ ssize_t rio_readp(int fd, void *ptr, size_t nbytes)
 {
   int n;
   while(1){
-    printf("reading\n");
     if ((n = read(fd, ptr, nbytes)) < 0) {
       if (errno == EINTR) continue;
     }
@@ -791,7 +790,6 @@ ssize_t rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen)
 
 ssize_t Rio_readp(int fd, void *ptr, size_t nbytes) 
 {
-    printf("calling read\n");
     ssize_t n;
   
     if ((n = rio_readp(fd, ptr, nbytes)) < 0) {
@@ -893,10 +891,11 @@ int open_clientfd(char *hostname, int port)
     serveraddr.sin_family = AF_INET;
     bcopy((char *)hp->h_addr, 
 	  (char *)&serveraddr.sin_addr.s_addr, hp->h_length);
+
     serveraddr.sin_port = htons(port);
 
     /* Establish a connection with the server */
-    if (connect(clientfd, (SA *) &serveraddr, sizeof(serveraddr)) < 0)
+    if (connect(clientfd, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) < 0)
 	return -1;
     return clientfd;
 }
