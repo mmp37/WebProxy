@@ -93,11 +93,10 @@ int main(int argc, char *argv[])
   /* not wait for new requests from browsers */
 
   while(1) {
-  	//char host[MAXLINE];
     clientlen = sizeof(clientaddr);
 
     connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-    printf("connfd: %d listenfd: %d\n", connfd, listenfd);
+    //printf("connfd: %d listenfd: %d\n", connfd, listenfd);
     
     hp = Gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr,
 		       sizeof(clientaddr.sin_addr.s_addr), AF_INET);
@@ -107,7 +106,6 @@ int main(int argc, char *argv[])
     args[0] = connfd; args[1] = serverPort;
 
     /* spawn a thread to process the new connection */
-    printf("getting to right before webtalk\n");
     Pthread_create(&tid, NULL, webTalk, (void*) args);
     Pthread_detach(tid);
   }
@@ -177,7 +175,6 @@ void *webTalk(void* args)
 	clientfd = ((int*)args)[0];
 	serverPort = ((int*)args)[1];
 	free(args);
-	printf("starting webtalk\n");
 
 	Rio_readinitb(&client, clientfd);
 	
@@ -187,8 +184,8 @@ void *webTalk(void* args)
 	numBytes = Rio_readlineb(&client, buf1, MAXLINE);
 	char request[sizeof(buf1)];
 	strcpy(request, buf1);
-	if(strlen(buf1)>0) {
-		printf("request1: %s\n", request);
+	if(strlen(buf1)>0 && !strstr(buf1, "127.0.0.1")) { //
+		//printf("request1: %s\n", request);
 		cmd = strtok_r(buf1, " \r\n", &saveptr);
 		strcpy(url, strtok_r(NULL, " \r\n", &saveptr));
 
@@ -200,7 +197,6 @@ void *webTalk(void* args)
 				Write(debugfd, buf3, strlen(buf3));}
 
 		if(!strcmp(cmd, "CONNECT")) {
-			printf("SERVERPORT: %d\n", serverPort);
 			secureTalk(clientfd, client, host, version, serverPort);
 			return ret; 
 		}
@@ -211,35 +207,24 @@ void *webTalk(void* args)
 		}
 
 
-		//pthread_mutex_lock(&mutex);
-		//printf("%s\n\n", buf5);
-		printf("%d\n", serverPort);
-		//sprintf(request, "%s %s %s\nHost: %s\n\n", cmd, file, "HTTP/1.1", host);
-		printf("request2: %s\n", request);
-		printf("host: %s\n", host);
-		printf("clientfd: %d\n serverfd: %d\n", clientfd, serverfd);
-		//pthread_mutex_lock(&mutex);
 		if(serverPort == 0)
 			serverPort = 80;
-		printf("SERVERPORT: %d\n", serverPort);
 		serverfd = Open_clientfd(host, serverPort);
 		//pthread_mutex_unlock(&mutex);
 		FILE* sockwfp = Fdopen(serverfd, "w");
-		printf("request: %s\n", request);
 		Fputs(request, sockwfp);
 		char* conClose = "Connection: close\r\n";
 		while(numBytes = Rio_readlineb(&client, buf1, MAXLINE)) {
-			printf("numbytes: %d\n", numBytes);
-			printf("buf1: %s\n", buf1);
+			//printf("numbytes: %d\n", numBytes);
+			//printf("buf1: %s\n", buf1);
 			if(numBytes == 2) {
 				Fputs(buf1, sockwfp);
 				fflush(sockwfp);
-				//shutdown(serverfd, 1);
+				
 				break;
 			}
 			else if(strstr(buf1, "Connection:"))
 			{
-				printf("close connection\n");
 				Fputs(conClose, sockwfp);
 				continue;
 			}
@@ -247,13 +232,7 @@ void *webTalk(void* args)
 				Fputs(buf1, sockwfp);
 			}
 		}
-		//Fputs("\r\n", sockwfp);
-		
 
-		//Fclose(sockwfp);
-		//shutdown(serverfd, 1);
-		
-		//pthread_mutex_unlock(&mutex);
 
 
 
@@ -266,11 +245,10 @@ void *webTalk(void* args)
 			if(numServBytes<= 0)
 				break;
 			Rio_writen(clientfd, buf4, numServBytes);
-			printf("buffer: %s\n", buf4);
-			printf("numservbytes: %d\n", numServBytes);
+			//printf("buffer: %s\n", buf4);
+			//printf("numservbytes: %d\n", numServBytes);
 		}
 		shutdown(clientfd, 1);
-		//pthread_mutex_unlock(&mutex);
 		//shutdown(serverfd, 1);
 
 		/* you should insert your code for processing connections here */
@@ -288,8 +266,8 @@ void *webTalk(void* args)
 		When EOF is detected while reading from the server socket,
 		send EOF to the client socket by calling shutdown(clientfd,1);
 		(and vice versa) 
-		*/	
-
+		*/
+		//Fclose(sockwfp);	
 		Close(clientfd);
 		Close(serverfd);
 	}
@@ -302,28 +280,36 @@ void serverRead(void* args) {
 	clientfd = ((int*)args)[0];
 	serverfd = ((int*)args)[1];
 	free(args);
+	numServBytes=1;
 	
 	while(1) {
-		printf("server read/write\n");
-		if(errno == EINTR)
+		if(errno == EINTR) {
 			continue;
-		numServBytes = Rio_readp(serverfd, buf4, MAXLINE);
-		//printf("buffer: %s\n",buf4);
-		printf("numbytesserv:%d//sfd:%d//cfd:%d\n ", numServBytes, serverfd, clientfd);
-		if(numServBytes <= 0) {
-		//	printf("buffer: %s\n",buf4);
-			printf("server breaking\n");
-			Rio_writep(clientfd, "\r\n\r\n", strlen("\r\n\r\n"));
-			break;
 		}
-		Rio_writep(clientfd, buf4, numServBytes);
+		if(fcntl(serverfd,F_GETFD)!=-1 && errno == 0) {
+			if((numServBytes = rio_readp(serverfd, buf4, MAXLINE)) < 0)
+				if(errno != EPIPE && errno != 0)
+					break;
+		}
+		else
+			break;
+		if(fcntl(clientfd,F_GETFD)!=-1 && errno == 0) {
+			//printf("numbytesserv:%d//sfd:%d//cfd:%d\n ", numServBytes, serverfd, clientfd);
+			if(numServBytes <= 0) {
+				rio_writep(clientfd, "\r\n\r\n", strlen("\r\n\r\n"));
+				break;
+			}
+			rio_writep(clientfd, buf4, numServBytes);
+		}
+		else
+			break;
 	}
-	shutdown(clientfd, 1);
+	Close(serverfd);
+	//shutdown(clientfd, 1);
 	//shutdown(serverfd, 0);
 }
 
 void *secureTalk(int clientfd, rio_t client, char* host, char* version, int serverPort) {
-	printf("starting securetalk\n");
 	void* ret = (void*) malloc(16);
 	pthread_t tid;
 	int* args;
@@ -336,54 +322,32 @@ void *secureTalk(int clientfd, rio_t client, char* host, char* version, int serv
 	char* buf1[MAXLINE], buf4[MAXLINE];
 	int numBytes, numCliBytes;
 	char* request[MAXLINE];
+	numCliBytes = 1;
 	
 	while(1) {
-		printf("read/write\n");
-		numCliBytes = Rio_readp(clientfd, buf4, MAXLINE);
-		printf("numbytescli:%d//sfd:%d//cfd:%d\n ", numCliBytes, serverfd, clientfd);
-		if(numCliBytes <= 0) {
-			printf("breaking\n");
-			Rio_writep(serverfd, "\r\n\r\n", strlen("\r\n\r\n"));
-			break;
+		if(errno == EINTR)
+			continue;
+		if(fcntl(clientfd,F_GETFD) != -1){
+			if((numCliBytes = rio_readp(clientfd, buf4, MAXLINE)) < 0)
+				if(errno != EPIPE && errno != 0)
+					break;
 		}
-		Rio_writep(serverfd, buf4, numCliBytes);
+		else
+			break;
+		if(fcntl(serverfd,F_GETFD)!=-1 && errno == 0) {
+			//printf("numbytescli:%d//sfd:%d//cfd:%d\n ", numCliBytes, serverfd, clientfd);
+			if(numCliBytes <= 0) {
+				rio_writep(serverfd, "\r\n\r\n", strlen("\r\n\r\n"));
+				break;
+			}
+			rio_writep(serverfd, buf4, numCliBytes);
+		}
+		else
+			break;
 	}
-	shutdown(serverfd,1);
+	//shutdown(serverfd,1);
 	//shutdown(clientfd,0);
-	//Close(serverfd);
-		//pthread_mutex_unlock(&mutex);
-	/*FILE* sockwfp = Fdopen(serverfd, "w");
-	printf("request: %s\n", request);
-	Fputs(request, sockwfp);
-	char* conClose = "Connection: close\r\n";
-	while(1) {
-		numBytes = Rio_readlineb(&client, buf1, MAXLINE);
-		printf("numbytes: %d\n", numBytes);
-		printf("buf1: %s\n", buf1);
-		if(numBytes == 2) {
-			Fputs(buf1, sockwfp);
-			break;
-		}
-		else if(strstr(buf1, "Proxy-Connection:")) {
-			printf("skipping proxyconn\n");
-			continue;
-		}
-		else if(strstr(buf1, "Connection:"))
-		{
-			printf("close connection\n");
-			Fputs(conClose, sockwfp);
-			continue;
-		}
-		else {
-			Fputs(buf1, sockwfp);
-		}
-	}
-	Fputs("\r\n\r\n", sockwfp);
-	fflush(sockwfp);*/
-
-	//struct sockaddr socket;
-	//socket
-	//Close(clientfd);
+	Close(clientfd);
 	//Close(serverfd);
 	return ret;
 }
